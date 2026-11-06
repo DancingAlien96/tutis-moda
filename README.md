@@ -32,11 +32,13 @@ y además carga ~2 años de pedidos de muestra para ver las estadísticas (la de
 - Confirmación con código de pedido y botón para enviar el pedido por WhatsApp.
 
 **Administrador**
-- Resumen: ventas, pedidos pendientes, más vendidos y tallas por agotarse.
-- Estadísticas (7 días, 30 días, 90 días, 12 meses): ventas, pedidos, ticket promedio y prendas vendidas con
+- Menú lateral fijo en computadora y deslizable en celular (contador de pedidos por confirmar).
+- Tablero (7 días, 30 días, 90 días, 12 meses): todo el negocio en una vista — ventas, pedidos, ticket promedio y prendas vendidas con
   comparación contra el período anterior; tendencia de ventas por día o mes (con tabla), ventas por marca,
-  tallas, estilos, jeans más vendidos, departamentos, métodos de pago y de entrega.
-- Productos: crear/editar/eliminar, subir foto, existencias por talla, ocultar/mostrar, destacar.
+  tallas, estilos, jeans más vendidos, departamentos, métodos de pago y de entrega; pedidos por atender,
+  pedidos recientes y tallas por agotarse.
+- Productos: crear/editar/eliminar, subir foto, existencias por talla, ocultar/mostrar, destacar
+  (en celular se ven como tarjetas y el formulario ocupa toda la pantalla).
 - Pedidos: filtrar por estado, ver detalle, cambiar estado y escribir al cliente por WhatsApp.
   Cancelar un pedido devuelve las prendas al inventario.
 - Ajustes: WhatsApp, costo de envío, monto para envío gratis, datos bancarios, direcciones, etc.

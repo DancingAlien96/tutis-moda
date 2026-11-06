@@ -132,16 +132,57 @@ export default function Products() {
   return (
     <>
       <header className="admin-head">
-        <h1>Productos</h1>
+        <div>
+          <h1>Productos</h1>
+          {list && <p className="muted small">{list.length} productos · {list.filter((p) => p.active).length} visibles en la tienda</p>}
+        </div>
         <div className="head-actions">
-          <LuSearch className="search-icon" aria-hidden="true" />
-          <input className="search-input" placeholder="Buscar…" value={q} onChange={(e) => setQ(e.target.value)} />
-          <button className="btn" onClick={() => setEditing(blank(meta))}><LuPlus /> Nuevo producto</button>
+          <div className="search-box">
+            <LuSearch className="search-icon" aria-hidden="true" />
+            <input className="search-input" placeholder="Buscar…" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Buscar productos" />
+          </div>
+          <button className="btn" onClick={() => setEditing(blank(meta))}><LuPlus /> <span>Nuevo producto</span></button>
         </div>
       </header>
       {error && <p className="alert">{error}</p>}
+      {list && (
+        <ul className="pcards" aria-label="Productos">
+          {filtered.map((p) => (
+            <li key={p.id} className={`pcard ${p.active ? '' : 'dim'}`}>
+              <button className="pcard-main" onClick={() => setEditing(p)} aria-label={`Editar ${p.name}`}>
+                <ProductImage product={p} className="pcard-img" />
+                <span className="pcard-info">
+                  <b>{p.name}</b>
+                  <span className="muted small">{p.brand} · {p.style}{p.featured && <> · <LuStar className="inline-icon star" /></>}</span>
+                  <span className="pcard-price">
+                    {money(p.price)}
+                    {p.compare_price && <s className="muted small">{money(p.compare_price)}</s>}
+                  </span>
+                </span>
+              </button>
+              <div className="stock-pills">
+                {meta.sizes.map((s) => {
+                  const n = Number(p.stock[s] || 0);
+                  return <span key={s} className={`sp ${n === 0 ? 'zero' : n <= 1 ? 'low' : ''}`} title={`Talla ${s}`}>{s}<b>{n}</b></span>;
+                })}
+              </div>
+              <div className="pcard-foot">
+                <label className="pcard-visible">
+                  <button className={`switch ${p.active ? 'on' : ''}`} onClick={() => toggleActive(p)} aria-label="Visible en tienda" aria-pressed={p.active} />
+                  <span className="small">{p.active ? 'Visible' : 'Oculto'} · {p.totalStock} en inventario</span>
+                </label>
+                <span>
+                  <button className="icon-btn sm" onClick={() => setEditing(p)} aria-label="Editar"><LuPencil /></button>
+                  <button className="icon-btn sm danger" onClick={() => remove(p)} aria-label="Eliminar"><LuTrash2 /></button>
+                </span>
+              </div>
+            </li>
+          ))}
+          {filtered.length === 0 && <li className="muted center">Sin productos</li>}
+        </ul>
+      )}
       {!list ? <p className="muted">Cargando…</p> : (
-        <div className="panel table-wrap">
+        <div className="panel table-wrap ptable">
           <table className="table">
             <thead>
               <tr><th /><th>Producto</th><th>Precio</th><th>Existencias por talla</th><th>Visible</th><th /></tr>

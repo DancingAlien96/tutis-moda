@@ -75,7 +75,7 @@ export function TrendChart({ data, format, describe, height = 240 }) {
     <div className="viz" ref={ref}>
       {width > 0 && (
         <svg width={width} height={height} role="img" aria-label={describe}
-          onMouseMove={onMove} onMouseLeave={() => setHover(null)}>
+          onPointerMove={onMove} onPointerDown={onMove} onPointerLeave={(e) => e.pointerType === 'mouse' && setHover(null)}>
           <g transform={`translate(${pad.left},${pad.top})`}>
             {ticks.map((t) => (
               <g key={t} transform={`translate(0,${y(t)})`}>
@@ -83,7 +83,7 @@ export function TrendChart({ data, format, describe, height = 240 }) {
                 <text x={-10} dy="0.32em" textAnchor="end" className="viz-tick">{compactQ(t)}</text>
               </g>
             ))}
-            {data.map((d, i) => (i % every === 0 || i === data.length - 1) && (
+            {data.map((d, i) => ((i % every === 0 && data.length - 1 - i >= every * 0.7) || i === data.length - 1) && (
               <text key={d.label} x={x(i)} y={h + 18} textAnchor={i === 0 ? 'start' : i === data.length - 1 ? 'end' : 'middle'} className="viz-tick">{d.label}</text>
             ))}
             <path d={area} fill={VIZ.series} opacity="0.1" />

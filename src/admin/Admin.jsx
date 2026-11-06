@@ -1,10 +1,9 @@
-import { createContext, useCallback, useContext, useState } from 'react';
-import { Link, NavLink, Navigate, Route, Routes } from 'react-router-dom';
+import { createContext, useCallback, useContext, useEffect, useState } from 'react';
+import { Link, NavLink, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { api, IS_DEMO, storage } from '../lib.js';
 import { Hearts } from '../components/Logo.jsx';
-import { LuArrowLeft, LuChartColumn, LuExternalLink, LuLayoutDashboard, LuLogOut, LuReceipt, LuSettings, LuShirt } from 'react-icons/lu';
-import Dashboard from './Dashboard.jsx';
-import Stats from './Stats.jsx';
+import { LuArrowLeft, LuExternalLink, LuLayoutDashboard, LuLogOut, LuMenu, LuReceipt, LuSettings, LuShirt, LuX } from 'react-icons/lu';
+import Tablero from './Tablero.jsx';
 import Products from './Products.jsx';
 import Orders from './Orders.jsx';
 import Settings from './Settings.jsx';
@@ -63,32 +62,80 @@ export default function Admin() {
 
   return (
     <AdminCtx.Provider value={{ call, logout }}>
-      <div className="admin">
-        <aside className="admin-side">
-          <div className="admin-brand"><Hearts size={16} /> <b>Tuti's</b> <span className="muted small">admin</span></div>
-          <nav>
-            <NavLink end to="/admin"><LuLayoutDashboard /> Resumen</NavLink>
-            <NavLink to="/admin/estadisticas"><LuChartColumn /> Estadísticas</NavLink>
-            <NavLink to="/admin/productos"><LuShirt /> Productos</NavLink>
-            <NavLink to="/admin/pedidos"><LuReceipt /> Pedidos</NavLink>
-            <NavLink to="/admin/ajustes"><LuSettings /> Ajustes</NavLink>
-          </nav>
-          <div className="admin-side-foot">
-            <Link to="/" target="_blank" className="with-icon"><LuExternalLink /> Ver tienda</Link>
-            <button className="link-btn with-icon" onClick={logout}><LuLogOut /> Cerrar sesión</button>
-          </div>
-        </aside>
-        <section className="admin-main">
-          <Routes>
-            <Route index element={<Dashboard />} />
-            <Route path="estadisticas" element={<Stats />} />
-            <Route path="productos" element={<Products />} />
-            <Route path="pedidos" element={<Orders />} />
-            <Route path="ajustes" element={<Settings />} />
-            <Route path="*" element={<Navigate to="/admin" replace />} />
-          </Routes>
-        </section>
-      </div>
+      <AdminShell call={call} logout={logout} />
     </AdminCtx.Provider>
+  );
+}
+
+const SECTIONS = [
+  { to: '/admin', end: true, icon: LuLayoutDashboard, label: 'Tablero' },
+  { to: '/admin/pedidos', icon: LuReceipt, label: 'Pedidos', badge: 'pending' },
+  { to: '/admin/productos', icon: LuShirt, label: 'Productos' },
+  { to: '/admin/ajustes', icon: LuSettings, label: 'Ajustes' },
+];
+
+function AdminShell({ call, logout }) {
+  const { pathname } = useLocation();
+  const [open, setOpen] = useState(false);
+  const [pending, setPending] = useState(0);
+
+  // Cierra el menú del celular al navegar y refresca el contador de pedidos por confirmar.
+  useEffect(() => { setOpen(false); }, [pathname]);
+  useEffect(() => { call('/stats').then((s) => setPending(s.pending)).catch(() => {}); }, [call, pathname]);
+  useEffect(() => {
+    if (!open) return undefined;
+    const onKey = (e) => e.key === 'Escape' && setOpen(false);
+    window.addEventListener('keydown', onKey);
+    document.body.style.overflow = 'hidden';
+    return () => { window.removeEventListener('keydown', onKey); document.body.style.overflow = ''; };
+  }, [open]);
+
+  const current = SECTIONS.find((s) => (s.end ? pathname.replace(/\/$/, '').endsWith('/admin') : pathname.includes(s.to))) || SECTIONS[0];
+
+  return (
+    <div className={`admin ${open ? 'menu-open' : ''}`}>
+      <header className="admin-topbar">
+        <button className="icon-btn" onClick={() => setOpen(true)} aria-label="Abrir menú" aria-expanded={open}><LuMenu size={22} /></button>
+        <span className="topbar-title">{current.label}</span>
+        <Hearts size={14} />
+      </header>
+      <div className="admin-scrim" onClick={() => setOpen(false)} aria-hidden="true" />
+
+      <aside className="admin-side" aria-label="Menú del administrador">
+        <div className="admin-brand">
+          <Hearts size={18} />
+          <span><b>TUTI'S</b><small>Panel de administración</small></span>
+          <button className="icon-btn side-close" onClick={() => setOpen(false)} aria-label="Cerrar menú"><LuX size={20} /></button>
+        </div>
+        <nav>
+          <span className="side-group">Negocio</span>
+          {SECTIONS.map(({ to, end, icon: Icon, label, badge }) => (
+            <NavLink key={to} to={to} end={end}>
+              <Icon /> <span className="grow">{label}</span>
+              {badge === 'pending' && pending > 0 && <span className="side-badge" title={`${pending} por confirmar`}>{pending}</span>}
+            </NavLink>
+          ))}
+          <span className="side-group">Tienda</span>
+          <Link to="/" target="_blank"><LuExternalLink /> <span className="grow">Ver tienda</span></Link>
+        </nav>
+        <div className="admin-side-foot">
+          <div className="side-user">
+            <span className="avatar">TM</span>
+            <span><b>Tuti's Moda</b><br /><small>{IS_DEMO ? 'Modo demo' : 'Administradora'}</small></span>
+          </div>
+          <button className="side-logout" onClick={logout} aria-label="Cerrar sesión" title="Cerrar sesión"><LuLogOut /></button>
+        </div>
+      </aside>
+
+      <section className="admin-main">
+        <Routes>
+          <Route index element={<Tablero />} />
+          <Route path="productos" element={<Products />} />
+          <Route path="pedidos" element={<Orders />} />
+          <Route path="ajustes" element={<Settings />} />
+          <Route path="*" element={<Navigate to="/admin" replace />} />
+        </Routes>
+      </section>
+    </div>
   );
 }

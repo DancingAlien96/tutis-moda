@@ -1,6 +1,7 @@
 import express from 'express';
 import multer from 'multer';
 import crypto from 'node:crypto';
+import net from 'node:net';
 import { existsSync, unlink } from 'node:fs';
 import { basename, dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -156,48 +157,81 @@ app.get('/api/orders/:code', (req, res) => {
 });
 
 // ---------- administrador ----------
-// Freno contra fuerza bruta en dos niveles, sin bloqueo permanente de la cuenta:
-//  1) Por cliente (IP; IPv6 agrupada por /64): tras 3 fallos cada intento espera cada vez más
+// Freno contra fuerza bruta, sin bloqueo permanente de la cuenta:
+//  1) Por cliente (IP; IPv6 agrupada por su /64): tras 3 fallos, cada intento espera cada vez más
 //     (hasta 8 s) y se atiende uno a la vez.
-//  2) Global (hay una sola cuenta de admin): con 20+ fallos en 15 min desde cualquier origen,
-//     todo el login pasa a un intento a la vez con 8 s de espera, en todo el servidor
-//     (≈110 intentos cada 15 min como máximo, aunque el atacante use miles de IPs).
-// La clave correcta sigue entrando cuando le toca turno, así nadie deja fuera a la dueña de forma permanente.
+//  2) Global (hay una sola cuenta de admin): con 20+ fallos en 15 min desde cualquier origen, los
+//     intentos entran a una fila en orden de llegada, uno cada 4 s en todo el servidor (≈225 cada
+//     15 min aunque el atacante use miles de IPs). Nadie es rechazado mientras haya lugar en la fila
+//     (máx. 60 s de espera); solo si la fila está llena se responde 429.
+//  3) ADMIN_ALLOW_IPS (opcional): IPs/redes de confianza de la tienda que no pasan por los frenos,
+//     para que la dueña pueda entrar incluso durante un ataque.
 const loginFails = new Map(); // cliente -> { count, until }
 const loginBusy = new Set();
 let globalFails = []; // marcas de tiempo de fallos recientes (todas las IPs)
-let globalBusy = false;
+let nextGlobalSlot = 0; // fila global: momento en que se atiende el siguiente intento
 const LOGIN_WINDOW = 15 * 60 * 1000;
 const GLOBAL_LIMIT = 20;
+const GLOBAL_SPACING = 4000;
+const GLOBAL_MAX_WAIT = 60000;
 const MAX_DELAY = 8000;
 const digest = (v) => crypto.createHmac('sha256', SECRET).update(String(v)).digest();
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-function clientKey(ip = '') {
-  const v4 = ip.replace(/^::ffff:/, '');
-  if (!v4.includes(':')) return v4 || 'desconocida';
-  // IPv6: un mismo cliente suele controlar un /64 completo → se cuentan juntos.
-  const [head] = ip.split('::');
-  const groups = head.split(':').filter(Boolean);
-  return groups.slice(0, 4).join(':') + '::/64';
+// Normaliza la IP: IPv4 tal cual; IPv6 expandida a sus 8 grupos y recortada al /64.
+function clientKey(raw = '') {
+  const ip = String(raw).split('%')[0];
+  const mapped = ip.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/i);
+  if (mapped) return mapped[1];
+  if (net.isIPv4(ip)) return ip;
+  if (!net.isIPv6(ip)) return 'desconocida';
+  const toGroups = (part) => (part ? part.split(':') : []).flatMap((g) => {
+    if (!g.includes('.')) return [g];
+    const b = g.split('.').map(Number); // IPv4 incrustada al final
+    return [((b[0] << 8) | b[1]).toString(16), ((b[2] << 8) | b[3]).toString(16)];
+  });
+  const [head, tail] = ip.split('::');
+  const h = toGroups(head);
+  const t = tail === undefined ? [] : toGroups(tail);
+  const full = tail === undefined ? h : [...h, ...Array(8 - h.length - t.length).fill('0'), ...t];
+  return full.slice(0, 4).map((g) => parseInt(g, 16).toString(16)).join(':') + '::/64';
 }
 
+const allowList = new net.BlockList();
+for (const entry of (process.env.ADMIN_ALLOW_IPS || '').split(',').map((s) => s.trim()).filter(Boolean)) {
+  const [addr, bits] = entry.split('/');
+  const type = net.isIPv6(addr) ? 'ipv6' : 'ipv4';
+  if (bits) allowList.addSubnet(addr, Number(bits), type); else allowList.addAddress(addr, type);
+}
+const isAllowed = (raw = '') => {
+  const ip = String(raw).split('%')[0].replace(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/i, '$1');
+  if (net.isIPv4(ip)) return allowList.check(ip, 'ipv4');
+  return net.isIPv6(ip) && allowList.check(ip, 'ipv6');
+};
+
 app.post('/api/admin/login', async (req, res) => {
+  const trusted = isAllowed(req.ip);
   const key = clientKey(req.ip);
+  if (!trusted && loginBusy.has(key)) return bad(res, 'Espera un momento e inténtalo de nuevo.', 429);
+
   const now = Date.now();
   globalFails = globalFails.filter((t) => t > now - LOGIN_WINDOW);
-  const globalMode = globalFails.length >= GLOBAL_LIMIT;
-
-  if (loginBusy.has(key) || (globalMode && globalBusy)) {
-    return bad(res, 'Hay muchos intentos en este momento. Espera unos segundos e inténtalo de nuevo.', 429);
+  let wait = 0;
+  if (!trusted && globalFails.length >= GLOBAL_LIMIT) {
+    const slot = Math.max(now, nextGlobalSlot);
+    if (slot - now > GLOBAL_MAX_WAIT) {
+      return bad(res, 'Hay muchos intentos en este momento. Espera un minuto e inténtalo de nuevo.', 429);
+    }
+    nextGlobalSlot = slot + GLOBAL_SPACING;
+    wait = slot - now;
   }
+
   loginBusy.add(key);
-  if (globalMode) globalBusy = true;
   try {
     let entry = loginFails.get(key);
     if (entry && entry.until <= now) { loginFails.delete(key); entry = undefined; }
-    const perClient = entry && entry.count >= 3 ? 500 * 2 ** (entry.count - 3) : 0;
-    const delay = Math.min(MAX_DELAY, globalMode ? MAX_DELAY : perClient);
+    const perClient = !trusted && entry && entry.count >= 3 ? Math.min(MAX_DELAY, 500 * 2 ** (entry.count - 3)) : 0;
+    const delay = Math.max(wait, perClient);
     if (delay) await sleep(delay);
 
     // Se comparan HMAC de igual largo: ni el resultado ni el tiempo dependen del largo de la clave.
@@ -205,6 +239,7 @@ app.post('/api/admin/login', async (req, res) => {
     if (!ok) {
       loginFails.set(key, { count: (entry?.count || 0) + 1, until: Date.now() + LOGIN_WINDOW });
       globalFails.push(Date.now());
+      if (globalFails.length > 2000) globalFails = globalFails.slice(-1000);
       if (loginFails.size > 5000) for (const [k, v] of loginFails) if (v.until <= Date.now()) loginFails.delete(k);
       return bad(res, 'Contraseña incorrecta', 401);
     }
@@ -212,7 +247,6 @@ app.post('/api/admin/login', async (req, res) => {
     res.json({ token: sign({ role: 'admin', exp: Date.now() + 1000 * 60 * 60 * 12 }) });
   } finally {
     loginBusy.delete(key);
-    if (globalMode) globalBusy = false;
   }
 });
 

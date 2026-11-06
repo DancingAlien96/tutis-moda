@@ -50,10 +50,10 @@ Datos en `server/data/tienda.db` y fotos en `server/uploads/` — respáldalos.
 
 `npm start` corre con `NODE_ENV=production` y **no arranca** si en `.env` falta `ADMIN_PASSWORD`
 (mín. 12 caracteres y distinta a `tutis2026`, que es la clave pública de la demo) o `SESSION_SECRET` (mín. 32 caracteres).
-Detrás de nginx u otro proxy, agrega `TRUST_PROXY=1` para que el freno del login use la IP real de cada visitante (actívalo solo si la app no es accesible directamente sin pasar por el proxy). Para más protección, limita `/admin` por IP en nginx.
+Detrás de nginx u otro proxy, agrega `TRUST_PROXY=1` para que el freno del login use la IP real de cada visitante (actívalo solo si la app no es accesible directamente sin pasar por el proxy). Con `ADMIN_ALLOW_IPS=203.0.113.10,198.51.100.0/24` (IPs o redes de la tienda) la dueña entra sin esperas aunque haya un ataque en curso. Para más protección, limita `/admin` por IP en nginx.
 Genera un secreto con `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`.
 
-Seguridad incluida: login con freno progresivo por cliente (IPv6 agrupada por /64) y freno global: con 20+ fallos en 15 min, un intento a la vez en todo el servidor con 8 s de espera (la clave correcta sigue entrando), pedidos consultables solo
+Seguridad incluida: login con freno progresivo por cliente (IPv6 agrupada por /64) y freno global: con 20+ fallos en 15 min los intentos entran en una fila en orden, uno cada 4 s en todo el servidor (la clave correcta sigue entrando), pedidos consultables solo
 con su enlace privado (token de 192 bits), fotos guardadas con extensión según su tipo real y servidas con
 `nosniff`, y validación de rutas de imagen para evitar borrar archivos fuera de `server/uploads/`.
 

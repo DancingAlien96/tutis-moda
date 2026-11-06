@@ -683,3 +683,13 @@ legend { font-family: var(--serif); font-size: 1.2rem; font-weight: 700; display
 @media (max-width: 420px) {
   .head-actions .btn span { display: none; }
 }
+
+/* Login: campo de contraseña con botón para mostrarla */
+.admin-login label[for="admin-pass"] { text-align: left; font-size: .85rem; font-weight: 500; color: var(--ink-soft); margin-bottom: -8px; }
+.pass-field { position: relative; }
+.pass-field input { padding-right: 46px; }
+.pass-toggle {
+  position: absolute; right: 4px; top: 50%; transform: translateY(-50%); width: 38px; height: 38px;
+  border: 0; background: none; border-radius: 8px; display: grid; place-items: center; color: var(--muted); font-size: 1.15rem;
+}
+.pass-toggle:hover { color: var(--ink); background: var(--cream); }

@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useState } from 'rea
 import { Link, NavLink, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { api, IS_DEMO, storage } from '../lib.js';
 import { Hearts } from '../components/Logo.jsx';
-import { LuArrowLeft, LuExternalLink, LuLayoutDashboard, LuLogOut, LuMenu, LuReceipt, LuSettings, LuShirt, LuX } from 'react-icons/lu';
+import { LuArrowLeft, LuEye, LuEyeOff, LuExternalLink, LuLayoutDashboard, LuLogOut, LuMenu, LuReceipt, LuSettings, LuShirt, LuX } from 'react-icons/lu';
 import Tablero from './Tablero.jsx';
 import Products from './Products.jsx';
 import Orders from './Orders.jsx';
@@ -15,6 +15,7 @@ function Login({ onLogin }) {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [show, setShow] = useState(false);
   const submit = async (e) => {
     e.preventDefault();
     setBusy(true); setError('');
@@ -33,7 +34,15 @@ function Login({ onLogin }) {
         <Hearts size={26} />
         <h1>Panel de administración</h1>
         <p className="muted small">Tuti's Moda Colombiana</p>
-        <label>Contraseña<input type="password" autoFocus required value={password} onChange={(e) => setPassword(e.target.value)} /></label>
+        <label htmlFor="admin-pass">Contraseña</label>
+        <div className="pass-field">
+          <input id="admin-pass" type={show ? 'text' : 'password'} autoFocus required autoComplete="current-password"
+            value={password} onChange={(e) => setPassword(e.target.value)} />
+          <button type="button" className="pass-toggle" onClick={() => setShow((v) => !v)}
+            aria-label={show ? 'Ocultar contraseña' : 'Mostrar contraseña'} aria-pressed={show} title={show ? 'Ocultar contraseña' : 'Mostrar contraseña'}>
+            {show ? <LuEyeOff /> : <LuEye />}
+          </button>
+        </div>
         {IS_DEMO && <p className="demo-hint small">Versión demo · contraseña: <b>tutis2026</b></p>}
         {error && <p className="alert">{error}</p>}
         <button className="btn btn-block" disabled={busy}>{busy ? 'Ingresando…' : 'Ingresar'}</button>

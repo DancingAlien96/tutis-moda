@@ -18,7 +18,8 @@ npm run dev
 - API: http://localhost:4180
 
 La primera vez se cargan 6 productos con fotos reales de la tienda (en `public/catalogo/`) y precios de referencia.
-`npm run seed` **borra productos y pedidos** y recarga ese catálogo inicial.
+`npm run seed` **borra productos y pedidos** y recarga ese catálogo inicial. `npm run seed:sample` hace lo mismo
+y además carga ~2 años de pedidos de muestra para ver las estadísticas (la demo de Pages ya los trae).
 
 ## Qué incluye
 
@@ -32,6 +33,9 @@ La primera vez se cargan 6 productos con fotos reales de la tienda (en `public/c
 
 **Administrador**
 - Resumen: ventas, pedidos pendientes, más vendidos y tallas por agotarse.
+- Estadísticas (7 días, 30 días, 90 días, 12 meses): ventas, pedidos, ticket promedio y prendas vendidas con
+  comparación contra el período anterior; tendencia de ventas por día o mes (con tabla), ventas por marca,
+  tallas, estilos, jeans más vendidos, departamentos, métodos de pago y de entrega.
 - Productos: crear/editar/eliminar, subir foto, existencias por talla, ocultar/mostrar, destacar.
 - Pedidos: filtrar por estado, ver detalle, cambiar estado y escribir al cliente por WhatsApp.
   Cancelar un pedido devuelve las prendas al inventario.

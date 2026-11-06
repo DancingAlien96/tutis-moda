@@ -2,8 +2,9 @@ import { createContext, useCallback, useContext, useState } from 'react';
 import { Link, NavLink, Navigate, Route, Routes } from 'react-router-dom';
 import { api, IS_DEMO, storage } from '../lib.js';
 import { Hearts } from '../components/Logo.jsx';
-import { LuArrowLeft, LuExternalLink, LuLayoutDashboard, LuLogOut, LuReceipt, LuSettings, LuShirt } from 'react-icons/lu';
+import { LuArrowLeft, LuChartColumn, LuExternalLink, LuLayoutDashboard, LuLogOut, LuReceipt, LuSettings, LuShirt } from 'react-icons/lu';
 import Dashboard from './Dashboard.jsx';
+import Stats from './Stats.jsx';
 import Products from './Products.jsx';
 import Orders from './Orders.jsx';
 import Settings from './Settings.jsx';
@@ -67,6 +68,7 @@ export default function Admin() {
           <div className="admin-brand"><Hearts size={16} /> <b>Tuti's</b> <span className="muted small">admin</span></div>
           <nav>
             <NavLink end to="/admin"><LuLayoutDashboard /> Resumen</NavLink>
+            <NavLink to="/admin/estadisticas"><LuChartColumn /> Estadísticas</NavLink>
             <NavLink to="/admin/productos"><LuShirt /> Productos</NavLink>
             <NavLink to="/admin/pedidos"><LuReceipt /> Pedidos</NavLink>
             <NavLink to="/admin/ajustes"><LuSettings /> Ajustes</NavLink>
@@ -79,6 +81,7 @@ export default function Admin() {
         <section className="admin-main">
           <Routes>
             <Route index element={<Dashboard />} />
+            <Route path="estadisticas" element={<Stats />} />
             <Route path="productos" element={<Products />} />
             <Route path="pedidos" element={<Orders />} />
             <Route path="ajustes" element={<Settings />} />

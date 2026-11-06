@@ -20,3 +20,21 @@ const insert = db.prepare(`
 for (const p of products) insert.run(p);
 
 console.log(`✔ ${products.length} productos cargados`);
+
+// `npm run seed:sample`: además agrega ~2 años de pedidos de muestra para ver las estadísticas.
+if (process.argv.includes('--sample')) {
+  const { generateSampleOrders } = await import('./analytics.js');
+  const { SIZES } = await import('./shared.js');
+  const saved = db.prepare('SELECT id, name, brand, price, wash, image, featured FROM products').all();
+  const orders = generateSampleOrders(saved, SIZES);
+  const ins = db.prepare(`
+    INSERT INTO orders (code, access_token, customer_name, phone, email, delivery, department, municipality, address, notes,
+      payment, items, subtotal, shipping, total, status, created_at)
+    VALUES (:code, :access_token, :customer_name, :phone, :email, :delivery, :department, :municipality, :address, :notes,
+      :payment, :items, :subtotal, :shipping, :total, :status, :created_at)
+  `);
+  db.exec('BEGIN');
+  for (const o of orders) ins.run({ ...o, items: JSON.stringify(o.items) });
+  db.exec('COMMIT');
+  console.log(`✔ ${orders.length} pedidos de muestra cargados`);
+}

@@ -1,9 +1,10 @@
 // API simulada para la demo estática (GitHub Pages, sin servidor).
 // Replica las rutas de server/index.js y guarda todo en el localStorage del visitante.
 import { BRANDS, DEFAULT_SETTINGS, ORDER_STATUSES, SEED_PRODUCTS, SIZES, STYLES } from '../server/shared.js';
+import { computeAnalytics, generateSampleOrders } from '../server/analytics.js';
 
 export const DEMO_PASSWORD = 'tutis2026';
-const KEY = 'tutis-demo-db-v1';
+const KEY = 'tutis-demo-db-v2'; // v2: incluye historial de pedidos de muestra
 const now = () => new Date().toISOString().replace('T', ' ').slice(0, 19);
 const money = (n) => Math.round(Number(n) * 100) / 100;
 const clone = (x) => JSON.parse(JSON.stringify(x));
@@ -12,7 +13,9 @@ function fresh() {
   const products = SEED_PRODUCTS.map((p, i) => ({
     id: i + 1, active: 1, created_at: now(), ...p, stock: JSON.parse(p.stock),
   }));
-  return { products, orders: [], settings: { ...DEFAULT_SETTINGS }, seq: { products: products.length, orders: 0 } };
+  // Dos años de pedidos de muestra para que las estadísticas tengan historia.
+  const orders = generateSampleOrders(products, SIZES).map((o, i) => ({ id: i + 1, ...o }));
+  return { products, orders, settings: { ...DEFAULT_SETTINGS }, seq: { products: products.length, orders: orders.length } };
 }
 
 let memory = null;
@@ -139,6 +142,10 @@ async function handle(method, path, body, token, form) {
     const route = `${method} /${seg.slice(1, 2).join('/')}`;
     const id = Number(seg[2]);
 
+    if (route === 'GET /analytics') {
+      const days = [7, 30, 90, 365].includes(Number(q.get('days'))) ? Number(q.get('days')) : 30;
+      return computeAnalytics(db.orders, db.products, days, SIZES);
+    }
     if (route === 'GET /stats') {
       const valid = db.orders.filter((o) => o.status !== 'cancelado');
       const byStatus = Object.fromEntries(ORDER_STATUSES.map((s) => [s, db.orders.filter((o) => o.status === s).length]));

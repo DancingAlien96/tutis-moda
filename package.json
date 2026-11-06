@@ -12,7 +12,8 @@
     "build:demo": "cross-env VITE_DEMO=1 VITE_BASE=/tutis-moda/ vite build",
     "start": "cross-env NODE_ENV=production node --disable-warning=ExperimentalWarning server/index.js",
     "seed": "node --disable-warning=ExperimentalWarning server/seed.js --reset",
-    "preview:demo": "cross-env VITE_BASE=/tutis-moda/ vite preview --port 5181 --strictPort"
+    "preview:demo": "cross-env VITE_BASE=/tutis-moda/ vite preview --port 5181 --strictPort",
+    "seed:sample": "node --disable-warning=ExperimentalWarning server/seed.js --reset --sample"
   },
   "dependencies": {
     "cross-env": "^7.0.3",

@@ -5,6 +5,7 @@ import net from 'node:net';
 import { existsSync, unlink } from 'node:fs';
 import { basename, dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { computeAnalytics } from './analytics.js';
 
 try { process.loadEnvFile(); } catch { /* sin .env: usamos valores por defecto */ }
 
@@ -252,6 +253,13 @@ app.post('/api/admin/login', async (req, res) => {
 
 const admin = express.Router();
 admin.use(requireAdmin);
+
+admin.get('/analytics', (req, res) => {
+  const days = [7, 30, 90, 365].includes(Number(req.query.days)) ? Number(req.query.days) : 30;
+  const orders = db.prepare('SELECT * FROM orders').all().map(rowToOrder);
+  const products = db.prepare('SELECT id, style FROM products').all();
+  res.json(computeAnalytics(orders, products, days, SIZES));
+});
 
 admin.get('/stats', (_req, res) => {
   const orders = db.prepare('SELECT * FROM orders').all().map(rowToOrder);

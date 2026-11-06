@@ -50,9 +50,10 @@ Datos en `server/data/tienda.db` y fotos en `server/uploads/` — respáldalos.
 
 `npm start` corre con `NODE_ENV=production` y **no arranca** si en `.env` falta `ADMIN_PASSWORD`
 (mín. 10 caracteres y distinta a `tutis2026`, que es la clave pública de la demo) o `SESSION_SECRET` (mín. 32 caracteres).
+Detrás de nginx u otro proxy, agrega `TRUST_PROXY=1` para que el freno del login use la IP real de cada visitante.
 Genera un secreto con `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`.
 
-Seguridad incluida: login con límite de 8 intentos fallidos por IP cada 15 min, pedidos consultables solo
+Seguridad incluida: login con espera progresiva por IP tras 3 fallos (hasta 8 s, un intento a la vez; la clave correcta siempre entra), pedidos consultables solo
 con su enlace privado (token de 192 bits), fotos guardadas con extensión según su tipo real y servidas con
 `nosniff`, y validación de rutas de imagen para evitar borrar archivos fuera de `server/uploads/`.
 

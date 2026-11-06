@@ -34,6 +34,11 @@ const SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toString('he
 if (!process.env.ADMIN_PASSWORD) console.warn('⚠ ADMIN_PASSWORD no definido: usando la clave de desarrollo (solo para uso local)');
 
 const app = express();
+// Detrás de nginx u otro proxy: TRUST_PROXY=1 (número de saltos) para que req.ip sea la IP real del cliente.
+if (process.env.TRUST_PROXY) {
+  const v = process.env.TRUST_PROXY;
+  app.set('trust proxy', /^\d+$/.test(v) ? Number(v) : v);
+}
 app.use(express.json({ limit: '1mb' }));
 app.use('/uploads', (_req, res, next) => {
   res.set({ 'X-Content-Type-Options': 'nosniff', 'Content-Security-Policy': "default-src 'none'; img-src 'self'; sandbox" });
@@ -151,28 +156,37 @@ app.get('/api/orders/:code', (req, res) => {
 });
 
 // ---------- administrador ----------
-// Máx. 8 intentos fallidos por IP cada 15 minutos.
-const loginFails = new Map();
+// Freno contra fuerza bruta sin bloquear a la dueña: tras 3 fallos por IP, cada intento espera
+// cada vez más (hasta 8 s) y solo se atiende un intento a la vez por IP. La clave correcta
+// siempre entra (solo más lento), así nadie puede dejar fuera al admin a propósito.
+const loginFails = new Map(); // ip -> { count, until }
+const loginBusy = new Set();
 const LOGIN_WINDOW = 15 * 60 * 1000;
 const digest = (v) => crypto.createHmac('sha256', SECRET).update(String(v)).digest();
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-app.post('/api/admin/login', (req, res) => {
+app.post('/api/admin/login', async (req, res) => {
   const ip = req.ip || 'desconocida';
-  const now = Date.now();
-  const entry = loginFails.get(ip);
-  if (entry && entry.until > now && entry.count >= 8) {
-    return bad(res, 'Demasiados intentos. Espera unos minutos e inténtalo de nuevo.', 429);
+  if (loginBusy.has(ip)) return bad(res, 'Espera un momento e inténtalo de nuevo.', 429);
+  loginBusy.add(ip);
+  try {
+    const now = Date.now();
+    let entry = loginFails.get(ip);
+    if (entry && entry.until <= now) { loginFails.delete(ip); entry = undefined; }
+    if (entry && entry.count >= 3) await sleep(Math.min(8000, 500 * 2 ** (entry.count - 3)));
+
+    // Se comparan HMAC de igual largo: ni el resultado ni el tiempo dependen del largo de la clave.
+    const ok = crypto.timingSafeEqual(digest(req.body?.password || ''), digest(ADMIN_PASSWORD));
+    if (!ok) {
+      loginFails.set(ip, { count: (entry?.count || 0) + 1, until: Date.now() + LOGIN_WINDOW });
+      if (loginFails.size > 5000) for (const [k, v] of loginFails) if (v.until <= Date.now()) loginFails.delete(k);
+      return bad(res, 'Contraseña incorrecta', 401);
+    }
+    loginFails.delete(ip);
+    res.json({ token: sign({ role: 'admin', exp: Date.now() + 1000 * 60 * 60 * 12 }) });
+  } finally {
+    loginBusy.delete(ip);
   }
-  // Se comparan HMAC de igual largo: ni el resultado ni el tiempo dependen del largo de la clave.
-  const ok = crypto.timingSafeEqual(digest(req.body?.password || ''), digest(ADMIN_PASSWORD));
-  if (!ok) {
-    const fresh = !entry || entry.until <= now;
-    loginFails.set(ip, { count: fresh ? 1 : entry.count + 1, until: fresh ? now + LOGIN_WINDOW : entry.until });
-    if (loginFails.size > 5000) for (const [k, v] of loginFails) if (v.until <= now) loginFails.delete(k);
-    return bad(res, 'Contraseña incorrecta', 401);
-  }
-  loginFails.delete(ip);
-  res.json({ token: sign({ role: 'admin', exp: Date.now() + 1000 * 60 * 60 * 12 }) });
 });
 
 const admin = express.Router();

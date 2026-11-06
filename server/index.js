@@ -2,7 +2,7 @@ import express from 'express';
 import multer from 'multer';
 import crypto from 'node:crypto';
 import { existsSync, unlink } from 'node:fs';
-import { dirname, extname, join } from 'node:path';
+import { basename, dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 try { process.loadEnvFile(); } catch { /* sin .env: usamos valores por defecto */ }
@@ -15,13 +15,30 @@ if (db.prepare('SELECT COUNT(*) AS n FROM products').get().n === 0) await import
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const UPLOADS = join(__dirname, 'uploads');
 const PORT = Number(process.env.API_PORT || 4180);
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'tutis2026';
-const SECRET = process.env.SESSION_SECRET || 'dev-secret-cambiar';
-if (!process.env.ADMIN_PASSWORD) console.warn('⚠ ADMIN_PASSWORD no definido: usando la clave de desarrollo "tutis2026"');
+const IS_PROD = process.env.NODE_ENV === 'production';
+const DEMO_PASSWORD = 'tutis2026'; // es pública (demo de GitHub Pages): nunca válida en producción
+if (IS_PROD) {
+  const missing = [];
+  if (!process.env.ADMIN_PASSWORD || process.env.ADMIN_PASSWORD === DEMO_PASSWORD || process.env.ADMIN_PASSWORD.length < 10) {
+    missing.push('ADMIN_PASSWORD (mín. 10 caracteres, distinta a la de la demo)');
+  }
+  if (!process.env.SESSION_SECRET || process.env.SESSION_SECRET.length < 32) missing.push('SESSION_SECRET (mín. 32 caracteres)');
+  if (missing.length) {
+    console.error('✖ No se puede arrancar en producción. Define en .env: ' + missing.join(', '));
+    process.exit(1);
+  }
+}
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || DEMO_PASSWORD;
+// Sin SESSION_SECRET (solo desarrollo) se genera uno aleatorio: las sesiones se invalidan al reiniciar.
+const SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex');
+if (!process.env.ADMIN_PASSWORD) console.warn('⚠ ADMIN_PASSWORD no definido: usando la clave de desarrollo (solo para uso local)');
 
 const app = express();
 app.use(express.json({ limit: '1mb' }));
-app.use('/uploads', express.static(UPLOADS, { maxAge: '7d' }));
+app.use('/uploads', (_req, res, next) => {
+  res.set({ 'X-Content-Type-Options': 'nosniff', 'Content-Security-Policy': "default-src 'none'; img-src 'self'; sandbox" });
+  next();
+}, express.static(UPLOADS, { maxAge: '7d' }));
 
 // ---------- utilidades ----------
 const bad = (res, msg, code = 400) => res.status(code).json({ error: msg });
@@ -106,11 +123,13 @@ app.post('/api/orders', (req, res) => {
       }
       const subtotal = money(items.reduce((a, i) => a + i.price * i.qty, 0));
       const shipping = delivery === 'tienda' || subtotal >= Number(settings.free_shipping_from) ? 0 : Number(settings.shipping_cost);
-      const code = 'TM-' + crypto.randomBytes(3).toString('hex').toUpperCase();
+      const code = 'TM-' + crypto.randomBytes(4).toString('hex').toUpperCase();
+      // Código corto para mostrar + token largo (192 bits) para consultar el pedido sin sesión.
+      const accessToken = crypto.randomBytes(24).toString('base64url');
       const info = db.prepare(`
-        INSERT INTO orders (code, customer_name, phone, email, delivery, department, municipality, address, notes, payment, items, subtotal, shipping, total)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(code, customer_name, phone, str(b.email, 120), delivery, str(b.department, 60), str(b.municipality, 80),
+        INSERT INTO orders (code, access_token, customer_name, phone, email, delivery, department, municipality, address, notes, payment, items, subtotal, shipping, total)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(code, accessToken, customer_name, phone, str(b.email, 120), delivery, str(b.department, 60), str(b.municipality, 80),
         str(b.address, 300), str(b.notes, 500), payment, JSON.stringify(items), subtotal, shipping, money(subtotal + shipping));
       return rowToOrder(db.prepare('SELECT * FROM orders WHERE id = ?').get(info.lastInsertRowid));
     });
@@ -122,16 +141,37 @@ app.post('/api/orders', (req, res) => {
 
 app.get('/api/orders/:code', (req, res) => {
   const o = rowToOrder(db.prepare('SELECT * FROM orders WHERE code = ?').get(str(req.params.code, 20)));
-  if (!o) return bad(res, 'Pedido no encontrado', 404);
-  res.json(o);
+  const t = Buffer.from(str(req.query.t, 64));
+  const expected = Buffer.from(o?.access_token || '');
+  if (!o || !expected.length || t.length !== expected.length || !crypto.timingSafeEqual(t, expected)) {
+    return bad(res, 'Pedido no encontrado', 404);
+  }
+  const { access_token, email, ...publicOrder } = o;
+  res.json(publicOrder);
 });
 
 // ---------- administrador ----------
+// Máx. 8 intentos fallidos por IP cada 15 minutos.
+const loginFails = new Map();
+const LOGIN_WINDOW = 15 * 60 * 1000;
+const digest = (v) => crypto.createHmac('sha256', SECRET).update(String(v)).digest();
+
 app.post('/api/admin/login', (req, res) => {
-  const pass = String(req.body?.password || '');
-  const ok = pass.length === ADMIN_PASSWORD.length &&
-    crypto.timingSafeEqual(Buffer.from(pass), Buffer.from(ADMIN_PASSWORD));
-  if (!ok) return bad(res, 'Contraseña incorrecta', 401);
+  const ip = req.ip || 'desconocida';
+  const now = Date.now();
+  const entry = loginFails.get(ip);
+  if (entry && entry.until > now && entry.count >= 8) {
+    return bad(res, 'Demasiados intentos. Espera unos minutos e inténtalo de nuevo.', 429);
+  }
+  // Se comparan HMAC de igual largo: ni el resultado ni el tiempo dependen del largo de la clave.
+  const ok = crypto.timingSafeEqual(digest(req.body?.password || ''), digest(ADMIN_PASSWORD));
+  if (!ok) {
+    const fresh = !entry || entry.until <= now;
+    loginFails.set(ip, { count: fresh ? 1 : entry.count + 1, until: fresh ? now + LOGIN_WINDOW : entry.until });
+    if (loginFails.size > 5000) for (const [k, v] of loginFails) if (v.until <= now) loginFails.delete(k);
+    return bad(res, 'Contraseña incorrecta', 401);
+  }
+  loginFails.delete(ip);
   res.json({ token: sign({ role: 'admin', exp: Date.now() + 1000 * 60 * 60 * 12 }) });
 });
 
@@ -167,6 +207,12 @@ admin.get('/products', (_req, res) => {
   res.json(db.prepare('SELECT * FROM products ORDER BY id DESC').all().map(rowToProduct));
 });
 
+// Solo se aceptan fotos subidas por el admin o las del catálogo incluido.
+const safeImage = (v) => {
+  const s = str(v, 300);
+  return /^\/(uploads|catalogo)\/[\w.-]+$/.test(s) && !s.includes('..') ? s : null;
+};
+
 function readProduct(b) {
   const name = str(b.name, 120);
   const price = Number(b.price);
@@ -182,7 +228,7 @@ function readProduct(b) {
     description: str(b.description, 2000),
     compare_price: compare > price ? money(compare) : null,
     wash: /^#[0-9a-f]{6}$/i.test(b.wash) ? b.wash : '#3b5b8c',
-    image: str(b.image, 300) || null,
+    image: safeImage(b.image),
     stock: JSON.stringify(stock),
     featured: b.featured ? 1 : 0,
     active: b.active === false ? 0 : 1,
@@ -226,17 +272,21 @@ admin.delete('/products/:id', (req, res) => {
 
 function removeUpload(url) {
   if (!url.startsWith('/uploads/')) return;
-  const file = join(UPLOADS, url.replace('/uploads/', ''));
+  const file = resolve(UPLOADS, basename(url));
+  if (!file.startsWith(resolve(UPLOADS) + sep)) return;
   if (existsSync(file)) unlink(file, () => {});
 }
+
+const EXT_BY_MIME = { 'image/jpeg': '.jpg', 'image/png': '.png', 'image/webp': '.webp', 'image/avif': '.avif' };
 
 const upload = multer({
   storage: multer.diskStorage({
     destination: UPLOADS,
-    filename: (_req, file, cb) => cb(null, `${Date.now()}-${crypto.randomBytes(4).toString('hex')}${extname(file.originalname).toLowerCase()}`),
+    // La extensión sale del tipo MIME ya validado, nunca del nombre que manda el navegador.
+    filename: (_req, file, cb) => cb(null, `${Date.now()}-${crypto.randomBytes(8).toString('hex')}${EXT_BY_MIME[file.mimetype]}`),
   }),
   limits: { fileSize: 5 * 1024 * 1024 },
-  fileFilter: (_req, file, cb) => cb(null, /^image\/(jpeg|png|webp|avif)$/.test(file.mimetype)),
+  fileFilter: (_req, file, cb) => cb(null, Object.hasOwn(EXT_BY_MIME, file.mimetype)),
 });
 admin.post('/upload', upload.single('image'), (req, res) => {
   if (!req.file) return bad(res, 'Sube una imagen JPG, PNG o WEBP de máximo 5 MB');

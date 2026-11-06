@@ -111,7 +111,8 @@ async function handle(method, path, body, token, form) {
     const subtotal = money(items.reduce((a, i) => a + i.price * i.qty, 0));
     const shipping = delivery === 'tienda' || subtotal >= Number(db.settings.free_shipping_from) ? 0 : Number(db.settings.shipping_cost);
     const order = {
-      id: ++db.seq.orders, code: 'TM-' + Math.random().toString(16).slice(2, 8).toUpperCase(),
+      id: ++db.seq.orders, code: 'TM-' + Math.random().toString(16).slice(2, 10).toUpperCase(),
+      access_token: crypto.randomUUID(),
       customer_name: str(b.customer_name, 120), phone: str(b.phone, 30), email: str(b.email, 120), delivery,
       department: str(b.department, 60), municipality: str(b.municipality, 80), address: str(b.address, 300),
       notes: str(b.notes, 500), payment, items, subtotal, shipping, total: money(subtotal + shipping),
@@ -124,7 +125,8 @@ async function handle(method, path, body, token, form) {
   }
 
   if (method === 'GET' && seg[0] === 'orders' && seg[1]) {
-    return db.orders.find((o) => o.code === seg[1]) || fail(404, 'Pedido no encontrado');
+    const o = db.orders.find((x) => x.code === seg[1] && x.access_token === q.get('t'));
+    return o || fail(404, 'Pedido no encontrado');
   }
 
   // ---- administrador ----

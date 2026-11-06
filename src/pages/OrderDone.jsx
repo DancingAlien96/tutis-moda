@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { useStore } from '../store.jsx';
 import { api, money, PAYMENT_LABELS, STATUS_LABELS, waLink } from '../lib.js';
 import { LuCircleCheck, LuLandmark } from 'react-icons/lu';
@@ -7,11 +7,13 @@ import { FaWhatsapp } from 'react-icons/fa6';
 
 export default function OrderDone() {
   const { code } = useParams();
+  const [params] = useSearchParams();
+  const t = params.get('t') || '';
   const { meta } = useStore();
   const [order, setOrder] = useState(null);
   const [error, setError] = useState('');
 
-  useEffect(() => { api(`/orders/${code}`).then(setOrder).catch((e) => setError(e.message)); }, [code]);
+  useEffect(() => { api(`/orders/${code}?t=${encodeURIComponent(t)}`).then(setOrder).catch((e) => setError(e.message)); }, [code, t]);
 
   if (error) return <div className="container section empty"><p>{error}</p><Link className="btn" to="/">Ir al inicio</Link></div>;
   if (!order) return <div className="container section"><div className="skeleton-block" /></div>;

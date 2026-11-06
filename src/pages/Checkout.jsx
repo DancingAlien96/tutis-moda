@@ -48,7 +48,7 @@ export default function Checkout() {
       storage.set('tutis-customer', remember);
       clearCart();
       loadMeta();
-      navigate(`/pedido/${order.code}`, { replace: true });
+      navigate(`/pedido/${order.code}?t=${encodeURIComponent(order.access_token)}`, { replace: true });
     } catch (err) {
       setError(err.message);
     } finally {

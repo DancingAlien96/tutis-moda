@@ -62,6 +62,11 @@ CREATE TABLE IF NOT EXISTS settings (
 const insertSetting = db.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)');
 for (const [k, v] of Object.entries(DEFAULT_SETTINGS)) insertSetting.run(k, v);
 
+// Migración: token para consultar un pedido sin sesión (bases creadas antes de esta columna).
+if (!db.prepare("SELECT 1 FROM pragma_table_info('orders') WHERE name = 'access_token'").get()) {
+  db.exec('ALTER TABLE orders ADD COLUMN access_token TEXT');
+}
+
 export function getSettings() {
   const rows = db.prepare('SELECT key, value FROM settings').all();
   return Object.fromEntries(rows.map((r) => [r.key, r.value]));

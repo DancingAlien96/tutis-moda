@@ -48,6 +48,14 @@ npm start        # Express sirve el API y la carpeta dist/ en el mismo puerto
 
 Datos en `server/data/tienda.db` y fotos en `server/uploads/` — respáldalos.
 
+`npm start` corre con `NODE_ENV=production` y **no arranca** si en `.env` falta `ADMIN_PASSWORD`
+(mín. 10 caracteres y distinta a `tutis2026`, que es la clave pública de la demo) o `SESSION_SECRET` (mín. 32 caracteres).
+Genera un secreto con `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`.
+
+Seguridad incluida: login con límite de 8 intentos fallidos por IP cada 15 min, pedidos consultables solo
+con su enlace privado (token de 192 bits), fotos guardadas con extensión según su tipo real y servidas con
+`nosniff`, y validación de rutas de imagen para evitar borrar archivos fuera de `server/uploads/`.
+
 ## Pendiente de confirmar con la tienda
 - Datos bancarios reales para transferencias (ahora hay un texto de ejemplo).
 - Qué foto corresponde a cada sucursal (asignadas a criterio desde la presentación de la marca).

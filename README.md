@@ -49,11 +49,11 @@ npm start        # Express sirve el API y la carpeta dist/ en el mismo puerto
 Datos en `server/data/tienda.db` y fotos en `server/uploads/` — respáldalos.
 
 `npm start` corre con `NODE_ENV=production` y **no arranca** si en `.env` falta `ADMIN_PASSWORD`
-(mín. 10 caracteres y distinta a `tutis2026`, que es la clave pública de la demo) o `SESSION_SECRET` (mín. 32 caracteres).
-Detrás de nginx u otro proxy, agrega `TRUST_PROXY=1` para que el freno del login use la IP real de cada visitante.
+(mín. 12 caracteres y distinta a `tutis2026`, que es la clave pública de la demo) o `SESSION_SECRET` (mín. 32 caracteres).
+Detrás de nginx u otro proxy, agrega `TRUST_PROXY=1` para que el freno del login use la IP real de cada visitante (actívalo solo si la app no es accesible directamente sin pasar por el proxy). Para más protección, limita `/admin` por IP en nginx.
 Genera un secreto con `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`.
 
-Seguridad incluida: login con espera progresiva por IP tras 3 fallos (hasta 8 s, un intento a la vez; la clave correcta siempre entra), pedidos consultables solo
+Seguridad incluida: login con freno progresivo por cliente (IPv6 agrupada por /64) y freno global: con 20+ fallos en 15 min, un intento a la vez en todo el servidor con 8 s de espera (la clave correcta sigue entrando), pedidos consultables solo
 con su enlace privado (token de 192 bits), fotos guardadas con extensión según su tipo real y servidas con
 `nosniff`, y validación de rutas de imagen para evitar borrar archivos fuera de `server/uploads/`.
 

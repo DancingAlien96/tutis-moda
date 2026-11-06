@@ -19,8 +19,8 @@ const IS_PROD = process.env.NODE_ENV === 'production';
 const DEMO_PASSWORD = 'tutis2026'; // es pública (demo de GitHub Pages): nunca válida en producción
 if (IS_PROD) {
   const missing = [];
-  if (!process.env.ADMIN_PASSWORD || process.env.ADMIN_PASSWORD === DEMO_PASSWORD || process.env.ADMIN_PASSWORD.length < 10) {
-    missing.push('ADMIN_PASSWORD (mín. 10 caracteres, distinta a la de la demo)');
+  if (!process.env.ADMIN_PASSWORD || process.env.ADMIN_PASSWORD === DEMO_PASSWORD || process.env.ADMIN_PASSWORD.length < 12) {
+    missing.push('ADMIN_PASSWORD (mín. 12 caracteres, distinta a la de la demo)');
   }
   if (!process.env.SESSION_SECRET || process.env.SESSION_SECRET.length < 32) missing.push('SESSION_SECRET (mín. 32 caracteres)');
   if (missing.length) {
@@ -156,36 +156,63 @@ app.get('/api/orders/:code', (req, res) => {
 });
 
 // ---------- administrador ----------
-// Freno contra fuerza bruta sin bloquear a la dueña: tras 3 fallos por IP, cada intento espera
-// cada vez más (hasta 8 s) y solo se atiende un intento a la vez por IP. La clave correcta
-// siempre entra (solo más lento), así nadie puede dejar fuera al admin a propósito.
-const loginFails = new Map(); // ip -> { count, until }
+// Freno contra fuerza bruta en dos niveles, sin bloqueo permanente de la cuenta:
+//  1) Por cliente (IP; IPv6 agrupada por /64): tras 3 fallos cada intento espera cada vez más
+//     (hasta 8 s) y se atiende uno a la vez.
+//  2) Global (hay una sola cuenta de admin): con 20+ fallos en 15 min desde cualquier origen,
+//     todo el login pasa a un intento a la vez con 8 s de espera, en todo el servidor
+//     (≈110 intentos cada 15 min como máximo, aunque el atacante use miles de IPs).
+// La clave correcta sigue entrando cuando le toca turno, así nadie deja fuera a la dueña de forma permanente.
+const loginFails = new Map(); // cliente -> { count, until }
 const loginBusy = new Set();
+let globalFails = []; // marcas de tiempo de fallos recientes (todas las IPs)
+let globalBusy = false;
 const LOGIN_WINDOW = 15 * 60 * 1000;
+const GLOBAL_LIMIT = 20;
+const MAX_DELAY = 8000;
 const digest = (v) => crypto.createHmac('sha256', SECRET).update(String(v)).digest();
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+function clientKey(ip = '') {
+  const v4 = ip.replace(/^::ffff:/, '');
+  if (!v4.includes(':')) return v4 || 'desconocida';
+  // IPv6: un mismo cliente suele controlar un /64 completo → se cuentan juntos.
+  const [head] = ip.split('::');
+  const groups = head.split(':').filter(Boolean);
+  return groups.slice(0, 4).join(':') + '::/64';
+}
+
 app.post('/api/admin/login', async (req, res) => {
-  const ip = req.ip || 'desconocida';
-  if (loginBusy.has(ip)) return bad(res, 'Espera un momento e inténtalo de nuevo.', 429);
-  loginBusy.add(ip);
+  const key = clientKey(req.ip);
+  const now = Date.now();
+  globalFails = globalFails.filter((t) => t > now - LOGIN_WINDOW);
+  const globalMode = globalFails.length >= GLOBAL_LIMIT;
+
+  if (loginBusy.has(key) || (globalMode && globalBusy)) {
+    return bad(res, 'Hay muchos intentos en este momento. Espera unos segundos e inténtalo de nuevo.', 429);
+  }
+  loginBusy.add(key);
+  if (globalMode) globalBusy = true;
   try {
-    const now = Date.now();
-    let entry = loginFails.get(ip);
-    if (entry && entry.until <= now) { loginFails.delete(ip); entry = undefined; }
-    if (entry && entry.count >= 3) await sleep(Math.min(8000, 500 * 2 ** (entry.count - 3)));
+    let entry = loginFails.get(key);
+    if (entry && entry.until <= now) { loginFails.delete(key); entry = undefined; }
+    const perClient = entry && entry.count >= 3 ? 500 * 2 ** (entry.count - 3) : 0;
+    const delay = Math.min(MAX_DELAY, globalMode ? MAX_DELAY : perClient);
+    if (delay) await sleep(delay);
 
     // Se comparan HMAC de igual largo: ni el resultado ni el tiempo dependen del largo de la clave.
     const ok = crypto.timingSafeEqual(digest(req.body?.password || ''), digest(ADMIN_PASSWORD));
     if (!ok) {
-      loginFails.set(ip, { count: (entry?.count || 0) + 1, until: Date.now() + LOGIN_WINDOW });
+      loginFails.set(key, { count: (entry?.count || 0) + 1, until: Date.now() + LOGIN_WINDOW });
+      globalFails.push(Date.now());
       if (loginFails.size > 5000) for (const [k, v] of loginFails) if (v.until <= Date.now()) loginFails.delete(k);
       return bad(res, 'Contraseña incorrecta', 401);
     }
-    loginFails.delete(ip);
+    loginFails.delete(key);
     res.json({ token: sign({ role: 'admin', exp: Date.now() + 1000 * 60 * 60 * 12 }) });
   } finally {
-    loginBusy.delete(ip);
+    loginBusy.delete(key);
+    if (globalMode) globalBusy = false;
   }
 });
 
